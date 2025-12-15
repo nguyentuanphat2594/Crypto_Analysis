@@ -41,7 +41,7 @@ if page == "Load data và Thống kê chung":
     st.header("📊 Load data và Thống kê chung")
     # Load data
     data = st.file_uploader("Upload your CSV file", type=["csv", "xlsx"])
-    """Tệp cần có các cột: timestamp, open, high, low, close, volume theo thứ tự."""
+    """***TỆP CẦN CÓ CÁC CỘT: timestamp, open, high, low, close, volume theo thứ tự.***"""
     if data is not None:
         if data.name.endswith('.csv'):
             data = pd.read_csv(data)
@@ -49,26 +49,31 @@ if page == "Load data và Thống kê chung":
             data = pd.read_excel(data)
         # Chuyển cột timestamp -> index
         try:
+            st.subheader("🔍 Kiểm tra chất lượng dữ liệu")
+            st.write(f'**Số hàng trùng lắp:**')
+            st.write(f'**{data.duplicated().sum()}** hàng')
             data.rename(columns={'timestamp': 'Timestamp', 'open': 'Open', 'high': 'High', 'low': 'Low', 'close': 'Close', 'volume': 'Volume' }, inplace=True)
             data['Timestamp'] = pd.to_datetime(data['Timestamp'])
             data.set_index('Timestamp', inplace=True)
             data.sort_index(inplace=True)
+            dup_ts = data.index.duplicated().sum()
+            st.write(f"**Số timestamp trùng lặp:**")
+            st.write(f"{dup_ts}")
+
+            st.session_state['data'] = data
+            st.subheader('Thông tin chung')
+            st.write(f"#### Data Shape:")
+            st.write(f"**{data.shape[0]} rows**, **{data.shape[1]} columns**")
+            st.write(f"#### Date range:")
+            st.write(f"**{data.index.min()}** to **{data.index.max()}**")
+            st.write("#### Missing Values")
+            st.dataframe(data.isna().sum().to_frame("Missing Count")) # Dùng to_frame để hiển vì output là series
+            st.write(F"#### Thống kê mô tả")                             
+            st.dataframe(data.describe().T) # DÙng T vì output là dataframe
+
         except Exception as e:
             st.error(f"Vui lòng đặt tên cột đúng định dạng, thứ tự: timestamp, open, high, low, close, volume")
             st.stop()
-        # Lưu data dùng chung
-        st.session_state['data'] = data
-
-        st.subheader('Thông tin chung')
-        st.write('Bắt đầu điểm tra các hàng trùng lặp:')
-        st.write('...')
-        st.write(f'Số hàng trùng lắp: {data.duplicated().sum()}')
-        st.write(f"Data Shape: {data.shape}")
-        st.write(f"Date range: {data.index.min()} to {data.index.max()}")
-        st.write("Missing Values")
-        st.dataframe(data.isna().sum().to_frame("Missing Count")) # Dùng to_frame để hiển vì output là series
-        st.write("Thống kê mô tả")                             
-        st.dataframe(data.describe().T) # DÙng T vì output là dataframe
 
     # Lưu data dùng chung
     st.session_state['data'] = data
@@ -83,20 +88,30 @@ elif page == "EDA":
         st.stop()
 
     # Tính, trực sai phân bậc 1 giá đóng cửa
-    data_diff = data['Close'].diff()
-    start, end = data.index[0], data.index[-1]
-    st.subheader('Biểu đồ sai phân bậc 1 giá đóng cửa')
-    fig, ax = plt.subplots(figsize=(30,10))
-    ax.plot(data_diff.loc[start:end],
-            marker='o', markersize=4, linestyle='-',
-            label= 'First Order Diiiferencing')
-    ax.set_ylabel('Close Price')
-    ax.legend()
-    st.pyplot(fig)
-
-    close_diff = data_diff
+    diff = data['Close'].diff()
     window = 240
     min_periods = 100
+    
+    rolling_mean = diff.rolling(window, min_periods=min_periods).mean()
+    rolling_std  = diff.rolling(window, min_periods=min_periods).std()
+
+    st.subheader('Xu hướng cục bộ và mức độ biến động của ETH (30 phút)')
+    fig, ax = plt.subplots(2, 1, figsize=(20,10), sharex=True)
+
+    # Rolling mean
+    ax[0].plot(rolling_mean, label='Rolling Mean (Diff)')
+    ax[0].axhline(0, linestyle='--', alpha=0.5)
+    ax[0].set_title('Rolling Mean of First-order Differencing')
+    ax[0].legend()
+
+    # Rolling std
+    ax[1].plot(rolling_std, label='Rolling Std (Volatility)')
+    ax[1].set_title('Rolling Volatility (Std of Diff)')
+    ax[1].legend()
+
+    st.pyplot(fig)
+
+    close_diff = diff
 
     rolling_mean = close_diff.rolling(window=window, min_periods=min_periods).mean()
     rolling_std = close_diff.rolling(window=window, min_periods=min_periods).std()
@@ -110,9 +125,23 @@ elif page == "EDA":
     mask = np.abs(z_scores) > thresold
     mask1 = np.abs(z_scores) > thresold1
     mask2 = np.abs(z_scores) > thresold2
-    st.write(f'Sai phân bậc 1 giá đóng cửa vượt ngưỡng {thresold}: {len(data_diff_filtered.loc[mask])}')
-    st.write(f'Sai phân bậc 1 giá đóng cửa vượt ngưỡng {thresold1}: {len(data_diff_filtered.loc[mask1])}')
-    st.write(f'Sai phân bậc 1 giá đóng cửa vượt ngưỡng {thresold2}: {len(data_diff_filtered.loc[mask2])}')
+
+    len_diff_greater3 = len(data_diff_filtered.loc[mask])
+    rate_diff_greater3 = round(len_diff_greater3 / len(close_diff) * 100,2)
+    def rate(rate):
+        if rate <= 5:
+            return 'Thấp'
+        elif 5 < rate < 10:
+            return 'Trung bình'
+        else:
+            return 'Cao'
+    st.markdown(f"""
+    **Tóm tắt thống kê (sai phân bậc 1):**
+    - Trung bình lợi suất: **{diff.mean()*100:.4f}%**
+    - Độ lệch chuẩn lợi suất: **{diff.std():.2f}**
+    - Độ biến động lớn nhất (rolling std): **{rolling_std.max():.2f}**
+    - Sai phân bậc 1 giá đóng cửa vượt ngưỡng **{thresold}**: **{len_diff_greater3}** (gần **{rate_diff_greater3}%** lượng data) -> ***{rate(rate_diff_greater3)}***
+    """)
 
     return_dist = close_diff
 
@@ -124,6 +153,38 @@ elif page == "EDA":
     plt.xlabel("Return")
     plt.ylabel("Frequency")
     st.pyplot(plt)
+    def rate_iqr(iqr):
+        if iqr < 0.005:
+            return "Biến động thấp, phân phối tập trung"
+        elif iqr < 0.015:
+            return "Biến động trung bình"
+        else:
+            return "Biến động cao, rủi ro đuôi lớn"
+
+    def rate_q1(q1):
+        if q1 > -0.002:
+            return "Đuôi âm nông, downside risk thấp"
+        elif q1 > -0.01:
+            return "Downside risk trung bình"
+        else:
+            return "Đuôi âm dày, rủi ro giảm mạnh"
+    def rate_q3(q3):
+        if q3 < 0.002:
+            return "Biên độ tăng yếu"
+        elif q3 < 0.01:
+            return "Upside trung bình"
+        else:
+            return "Upside mạnh, xuất hiện các nhịp tăng lớn"
+    q1 = return_dist.quantile(0.25)
+    q3 = return_dist.quantile(0.75)
+    iqr = q3 - q1
+
+    st.markdown(f"""
+    **Rủi ro & cơ hội đuôi phân phối (lợi suất):**
+    - Q1 (25%): **{q1:.2f}** → *{rate_q1(q1)}*
+    - Q3 (75%): **{q3:.2f}** → *{rate_q3(q3)}*
+    - IQR: **{iqr:.2f}** → *{rate_iqr(iqr)}*
+    """)
 
     # Vẽ biểu đồ Boxplot
     st.subheader('Biểu đồ thể hiện giá trị ngoại lai của lợi nhuận')
@@ -132,6 +193,46 @@ elif page == "EDA":
     plt.title(f"Biểu đồ boxplot xem các giá trị ngoại lai của lợi nhuận\nKurtosis = {return_dist.kurtosis():.2f}")
     plt.ylabel("Return")
     st.pyplot(plt)
+    def rate_kurtosis(kurt):
+        if kurt < 0:
+            return "Phân phối bẹt, ít đuôi dày, tail risk thấp"
+        elif kurt < 3:
+            return "Phân phối gần chuẩn, tail risk trung bình"
+        elif kurt < 7:
+            return "Phân phối đuôi dày, thường xuyên xuất hiện biến động lớn"
+        else:
+            return "Đuôi rất dày, rủi ro cực đoan cao (fat-tail risk)"
+    def rate_outlier_ratio(outlier_ratio):
+        if outlier_ratio < 1:
+            return "Rất ít ngoại lai, biến động tương đối ổn định"
+        elif outlier_ratio < 5:
+            return "Có một số ngoại lai, xuất hiện shock ngắn hạn"
+        elif outlier_ratio < 10:
+            return "Nhiều ngoại lai, thị trường biến động mạnh"
+        else:
+            return "Ngoại lai dày đặc, rủi ro biến động cực đoan"
+    q1 = return_dist.quantile(0.25)
+    q3 = return_dist.quantile(0.75)
+    iqr = q3 - q1
+
+    lower_bound = q1 - 1.5 * iqr
+    upper_bound = q3 + 1.5 * iqr
+
+    outliers = return_dist[(return_dist < lower_bound) | (return_dist > upper_bound)]
+    outlier_ratio = len(outliers) / len(return_dist) * 100
+    kurt = return_dist.kurtosis()
+
+    st.markdown(f"""
+    **Phân tích ngoại lai & tail risk (Boxplot):**
+    - Kurtosis: **{kurt:.2f}** → *{rate_kurtosis(kurt)}*
+    - Tỷ lệ ngoại lai: **{outlier_ratio:.2f}%** → *{rate_outlier_ratio(outlier_ratio)}*
+    - Biên dưới (Lower bound): **{lower_bound:.2f}**
+    - Biên trên (Upper bound): **{upper_bound:.2f}**
+
+    Boxplot cho thấy sự xuất hiện của nhiều giá trị ngoại lai, phản ánh các cú biến động bất thường trong lợi suất.
+    """)
+
+
 
 
 
@@ -176,7 +277,7 @@ elif page == "Model":
     low_corr = corr['Return'].abs() < 0.05
     remove_low_corr = list(low_corr[low_corr].index)
     df = df.drop(remove_low_corr, axis=1)
-    st.write(f'đã loại bỏ các biến cơ bản có tương quan thấp với Return: {remove_low_corr}')
+    st.write(f'Đã loại bỏ các biến cơ bản có tương quan thấp với Return: {remove_low_corr}')
 
     # Chuẩn bị các biến đặc trưng chỉ báo 
     #1. RSI
@@ -502,9 +603,9 @@ elif page == "Model":
     # Walk - Forward Optimization
     cash = 1000000
     commission = 0.001
-    max_evals = 20
+    max_evals = 15
     fitness = 'cagr'
-    num_split = 6
+    num_split = 5
 
     # Tạo hàm chia dữ liệu theo seq
     def split_data(df_split, seq):
@@ -565,7 +666,8 @@ elif page == "Model":
 
         return results
 
-    if st.button("🚀 Bắt đầu quá trình Walk-Forward Optimization (Rất lâu)"):
+    if st.button("🚀 Bắt đầu quá trình Walk-Forward Optimization"):
+        """Vì quá trình walk-forward khá lâu nên tiết kiệm thời gian sẽ chạy với số lượng num split =  6"""
         time_start = time.time()
 
         perf_total_train = pd.DataFrame()
