@@ -40,14 +40,22 @@ page = st.sidebar.selectbox(
 if page == "Load data và Thống kê chung":
     st.header("📊 Load data và Thống kê chung")
     # Load data
-    data = st.file_uploader("Upload your CSV file", type=["csv", "xlsx"])
-    """***TỆP CẦN CÓ CÁC CỘT: timestamp, open, high, low, close, volume theo thứ tự.***"""
+    choice = st.radio(
+        "Chọn nguồn dữ liệu",
+        ["Sample sẵn có", "Upload dữ liệu của bạn"]
+    )
+    if choice == "Sample sẵn có":
+        data = pd.read_csv("ETHUSDT.csv")
+    else:
+        """***TỆP CẦN CÓ CÁC CỘT: timestamp, open, high, low, close, volume theo thứ tự.***"""
+        data = st.file_uploader("Upload your CSV file", type=["csv", "xlsx"])
+        if data is not None:
+            if data.name.endswith('.csv'):
+                data = pd.read_csv(data)
+            elif data.name.endswith('.xlsx'):
+                data = pd.read_excel(data)
+
     if data is not None:
-        if data.name.endswith('.csv'):
-            data = pd.read_csv(data)
-        elif data.name.endswith('.xlsx'):
-            data = pd.read_excel(data)
-        # Chuyển cột timestamp -> index
         try:
             st.subheader("🔍 Kiểm tra chất lượng dữ liệu")
             st.write(f'**Số hàng trùng lắp:**')
@@ -60,7 +68,6 @@ if page == "Load data và Thống kê chung":
             st.write(f"**Số timestamp trùng lặp:**")
             st.write(f"{dup_ts}")
 
-            st.session_state['data'] = data
             st.subheader('Thông tin chung')
             st.write(f"#### Data Shape:")
             st.write(f"**{data.shape[0]} rows**, **{data.shape[1]} columns**")
