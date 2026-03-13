@@ -368,30 +368,43 @@ elif page == "EDA":
     """)
 
 
-    # Autocorrelation
+    st.subheader("Drawdown của giá ETH")
 
-    from statsmodels.graphics.tsaplots import plot_acf
+    price = data["Close"]
 
-    st.subheader("Autocorrelation của lợi nhuận")
+    # Tính đỉnh tích lũy
+    rolling_max = price.cummax()
 
-    fig, ax = plt.subplots(figsize=(10,4))
-    plot_acf(diff,lags=40,ax=ax)
+    # Tính drawdown
+    drawdown = (price - rolling_max) / rolling_max * 100
+
+    fig, ax = plt.subplots(figsize=(18,5))
+
+    ax.plot(drawdown, color="red", label="Drawdown (%)")
+    ax.fill_between(drawdown.index, drawdown, 0, color="red", alpha=0.3)
+
+    ax.set_title("Maximum Drawdown Over Time")
+    ax.set_ylabel("Drawdown (%)")
+    ax.legend()
+
     st.pyplot(fig)
-    acf1 = diff.autocorr(lag=1)
+    plt.close(fig)
 
-    def acf_eval(acf):
-        if abs(acf) < 0.05:
-            return "Không có autocorrelation đáng kể"
-        elif abs(acf) < 0.2:
-            return "Autocorrelation yếu"
+    max_dd = drawdown.min()
+
+    def dd_eval(dd):
+        if dd > -10:
+            return "Rủi ro giảm thấp"
+        elif dd > -30:
+            return "Rủi ro giảm trung bình"
         else:
-            return "Autocorrelation mạnh"
+            return "Thị trường có khả năng sụt giảm mạnh"
 
     st.markdown(f"""
-    **Phân tích Autocorrelation**
+    **Phân tích Drawdown**
 
-    - ACF lag1: **{acf1:.3f}**
-    - Nhận xét: *{acf_eval(acf1)}*
+    - Maximum Drawdown: **{max_dd:.2f}%**
+    - Nhận xét: ***{dd_eval(max_dd)}***
     """)
 
 
