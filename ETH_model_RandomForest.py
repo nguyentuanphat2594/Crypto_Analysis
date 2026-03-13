@@ -159,7 +159,7 @@ elif page == "EDA":
         st.stop()
 
     # Tính, trực sai phân bậc 1 giá đóng cửa
-    diff = data['Close'].diff()
+    diff = data['Close'].diff().dropna()
     window = 240
     min_periods = 100
     
@@ -375,11 +375,8 @@ elif page == "EDA":
     st.subheader("Autocorrelation của lợi nhuận")
 
     fig, ax = plt.subplots(figsize=(10,4))
-
-    plot_acf(diff.dropna(),lags=40,ax=ax)
-
+    plot_acf(diff,lags=40,ax=ax)
     st.pyplot(fig)
-
     acf1 = diff.autocorr(lag=1)
 
     def acf_eval(acf):
