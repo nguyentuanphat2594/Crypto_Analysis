@@ -38,209 +38,330 @@ page = st.sidebar.selectbox(
 )
 
 if page == "Load data và Thống kê chung":
+
     st.header("📊 Load data và Thống kê chung")
-    # Load data
+
+    # Chọn nguồn dữ liệu
+
     choice = st.radio(
         "Chọn nguồn dữ liệu",
         ["Sample sẵn có", "Upload dữ liệu của bạn"]
     )
+
     if choice == "Sample sẵn có":
         data = pd.read_csv("ETHUSDT.csv")
+
     else:
-        """***TỆP CẦN CÓ CÁC CỘT: timestamp, open, high, low, close, volume theo thứ tự.***"""
-        data = st.file_uploader("Upload your CSV file", type=["csv", "xlsx"])
-        if data is not None:
-            if data.name.endswith('.csv'):
-                data = pd.read_csv(data)
-            elif data.name.endswith('.xlsx'):
-                data = pd.read_excel(data)
+        st.info("File cần có các cột: timestamp, open, high, low, close, volume")
+
+        file = st.file_uploader("Upload CSV hoặc Excel", type=["csv", "xlsx"])
+
+        if file is not None:
+            if file.name.endswith(".csv"):
+                data = pd.read_csv(file)
+            else:
+                data = pd.read_excel(file)
+        else:
+            data = None
+
+    # Xử lý dữ liệu
 
     if data is not None:
+
         try:
-            st.subheader("🔍 Kiểm tra chất lượng dữ liệu")
-            st.write(f'**Số hàng trùng lắp:**')
-            st.write(f'**{data.duplicated().sum()}** hàng')
-            data.rename(columns={'timestamp': 'Timestamp', 'open': 'Open', 'high': 'High', 'low': 'Low', 'close': 'Close', 'volume': 'Volume' }, inplace=True)
+            data.rename(columns={
+                'timestamp': 'Timestamp',
+                'open': 'Open',
+                'high': 'High',
+                'low': 'Low',
+                'close': 'Close',
+                'volume': 'Volume'
+            }, inplace=True)
+
             data['Timestamp'] = pd.to_datetime(data['Timestamp'])
             data.set_index('Timestamp', inplace=True)
             data.sort_index(inplace=True)
+
+            # Data Quality
+
+            st.subheader("🔍 Kiểm tra chất lượng dữ liệu")
+
+            dup_rows = data.duplicated().sum()
             dup_ts = data.index.duplicated().sum()
-            st.write(f"**Số timestamp trùng lặp:**")
-            st.write(f"{dup_ts}")
 
-            st.subheader('Thông tin chung')
-            st.write(f"#### Data Shape:")
-            st.write(f"**{data.shape[0]} rows**, **{data.shape[1]} columns**")
-            st.write(f"#### Date range:")
-            st.write(f"**{data.index.min()}** to **{data.index.max()}**")
-            st.write("#### Missing Values")
-            st.dataframe(data.isna().sum().to_frame("Missing Count")) # Dùng to_frame để hiển vì output là series
-            st.write(F"#### Thống kê mô tả")                             
-            st.dataframe(data.describe().T) # DÙng T vì output là dataframe
+            col1, col2 = st.columns(2)
 
-        except Exception as e:
-            st.error(f"Vui lòng đặt tên cột đúng định dạng, thứ tự: timestamp, open, high, low, close, volume")
+            with col1:
+                st.metric("Hàng trùng lặp", dup_rows)
+
+            with col2:
+                st.metric("Timestamp trùng", dup_ts)
+
+            st.divider()
+
+
+            # Dataset Info
+
+            st.subheader("📁 Thông tin Dataset")
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.metric("Rows", data.shape[0])
+
+            with col2:
+                st.metric("Columns", data.shape[1])
+
+            st.write(
+                f"**Date range:** {data.index.min()}  →  {data.index.max()}"
+            )
+
+            st.divider()
+
+            # Missing values
+
+            st.subheader("⚠️ Missing Values")
+
+            missing = data.isna().sum().to_frame("Missing Count")
+
+            st.dataframe(
+                missing,
+                use_container_width=True
+            )
+
+
+            # Describe
+
+            st.subheader("📈 Thống kê mô tả")
+
+            desc = data.describe().T
+
+            st.dataframe(
+                desc.style.background_gradient(cmap="Blues"),
+                use_container_width=True
+            )
+
+        except Exception:
+            st.error(
+                "Tên cột phải đúng thứ tự: timestamp, open, high, low, close, volume"
+            )
             st.stop()
 
-    # Lưu data dùng chung
+    # lưu data
     st.session_state['data'] = data
     
 
 elif page == "EDA":
-    st.header("📈 EDA")
+
+    st.header("📈 Exploratory Data Analysis (EDA)")
 
     data = st.session_state.data
     if data is None:
-        st.warning("Vui lòng tải dữ liệu trong mục 'Thống kê chung' trước khi sử dụng chức năng này.")
+        st.warning("Vui lòng tải dữ liệu trong mục 'Thống kê chung' trước.")
         st.stop()
 
-    # Tính, trực sai phân bậc 1 giá đóng cửa
-    diff = data['Close'].diff()
+    # ==============================
+    # Return (first difference)
+    # ==============================
+    diff = data["Close"].diff().dropna()
+
     window = 240
     min_periods = 100
-    
+
     rolling_mean = diff.rolling(window, min_periods=min_periods).mean()
-    rolling_std  = diff.rolling(window, min_periods=min_periods).std()
+    rolling_std = diff.rolling(window, min_periods=min_periods).std()
 
-    st.subheader('Xu hướng cục bộ và mức độ biến động của ETH (30 phút)')
-    fig, ax = plt.subplots(2, 1, figsize=(20,10), sharex=True)
+    # ==============================
+    # Rolling Trend + Volatility
+    # ==============================
+    st.subheader("Xu hướng cục bộ và mức độ biến động")
 
-    # Rolling mean
-    ax[0].plot(rolling_mean, label='Rolling Mean (Diff)')
-    ax[0].axhline(0, linestyle='--', alpha=0.5)
-    ax[0].set_title('Rolling Mean of First-order Differencing')
+    fig, ax = plt.subplots(2,1,figsize=(18,8),sharex=True)
+
+    ax[0].plot(rolling_mean,label="Rolling Mean")
+    ax[0].axhline(0,linestyle="--",alpha=0.5)
+    ax[0].set_title("Rolling Mean of Returns")
     ax[0].legend()
 
-    # Rolling std
-    ax[1].plot(rolling_std, label='Rolling Std (Volatility)')
-    ax[1].set_title('Rolling Volatility (Std of Diff)')
+    ax[1].plot(rolling_std,label="Rolling Volatility")
+    ax[1].set_title("Rolling Std (Volatility)")
     ax[1].legend()
 
     st.pyplot(fig)
 
-    close_diff = diff
+    # ==============================
+    # Price Trend + Moving Average
+    # ==============================
+    st.subheader("Xu hướng giá ETH")
 
-    rolling_mean = close_diff.rolling(window=window, min_periods=min_periods).mean()
-    rolling_std = close_diff.rolling(window=window, min_periods=min_periods).std()
+    ma_short = data["Close"].rolling(48).mean()
+    ma_long = data["Close"].rolling(240).mean()
 
-    z_scores = (close_diff - rolling_mean)/rolling_std
+    fig, ax = plt.subplots(figsize=(18,5))
 
-    thresold = 3
-    thresold1 = 4
-    thresold2 = 5
-    data_diff_filtered = close_diff.copy()
-    mask = np.abs(z_scores) > thresold
-    mask1 = np.abs(z_scores) > thresold1
-    mask2 = np.abs(z_scores) > thresold2
+    ax.plot(data["Close"],label="Close Price",alpha=0.6)
+    ax.plot(ma_short,label="MA 48")
+    ax.plot(ma_long,label="MA 240")
 
-    len_diff_greater3 = len(data_diff_filtered.loc[mask])
-    rate_diff_greater3 = round(len_diff_greater3 / len(close_diff) * 100,2)
-    def rate(rate):
-        if rate <= 5:
-            return 'Thấp'
-        elif 5 < rate < 10:
-            return 'Trung bình'
+    ax.legend()
+    ax.set_title("Price Trend with Moving Averages")
+
+    st.pyplot(fig)
+
+    trend = ma_short.iloc[-1] - ma_long.iloc[-1]
+
+    def trend_eval(trend):
+        if trend > 20:
+            return "Xu hướng tăng mạnh"
+        elif trend > 0:
+            return "Xu hướng tăng nhẹ"
+        elif trend > -20:
+            return "Xu hướng giảm nhẹ"
         else:
-            return 'Cao'
+            return "Xu hướng giảm mạnh"
+
     st.markdown(f"""
-    **Tóm tắt thống kê (sai phân bậc 1):**
-    - Trung bình lợi suất: **{diff.mean()*100:.4f}%**
-    - Độ lệch chuẩn lợi suất: **{diff.std():.2f}**
-    - Độ biến động lớn nhất (rolling std): **{rolling_std.max():.2f}**
-    - Sai phân bậc 1 giá đóng cửa vượt ngưỡng **{thresold}**: **{len_diff_greater3}** (gần **{rate_diff_greater3}%** lượng data) -> ***{rate(rate_diff_greater3)}***
-    """)
+**Đánh giá xu hướng**
 
-    return_dist = close_diff
+- Chênh lệch MA: **{trend:.2f}**
+- Nhận xét: ***{trend_eval(trend)}***
+""")
 
-    # Vẽ biểu đồ Histogram
-    st.subheader('Biểu đồ Histogram phân phối lợi nhuận theo tần suất')
-    plt.figure(figsize=(10,5))
-    plt.hist(return_dist, bins=100)
-    plt.title(f"Biểu đồ Histogram thể hiện phân phối lợi nhuận theo tần suất\nSkew = {return_dist.skew():.2f}")
-    plt.xlabel("Return")
-    plt.ylabel("Frequency")
-    st.pyplot(plt)
+    # ==============================
+    # Histogram Distribution
+    # ==============================
+    st.subheader("Phân phối lợi nhuận")
+
+    fig, ax = plt.subplots(figsize=(10,5))
+
+    ax.hist(diff,bins=100)
+
+    ax.set_title(f"Return Distribution\nSkew = {diff.skew():.2f}")
+
+    ax.set_xlabel("Return")
+    ax.set_ylabel("Frequency")
+
+    st.pyplot(fig)
+
+    q1 = diff.quantile(0.25)
+    q3 = diff.quantile(0.75)
+    iqr = q3 - q1
+
     def rate_iqr(iqr):
         if iqr < 0.005:
-            return "Biến động thấp, phân phối tập trung"
+            return "Biến động thấp"
         elif iqr < 0.015:
             return "Biến động trung bình"
         else:
-            return "Biến động cao, rủi ro đuôi lớn"
-
-    def rate_q1(q1):
-        if q1 > -0.002:
-            return "Đuôi âm nông, downside risk thấp"
-        elif q1 > -0.01:
-            return "Downside risk trung bình"
-        else:
-            return "Đuôi âm dày, rủi ro giảm mạnh"
-    def rate_q3(q3):
-        if q3 < 0.002:
-            return "Biên độ tăng yếu"
-        elif q3 < 0.01:
-            return "Upside trung bình"
-        else:
-            return "Upside mạnh, xuất hiện các nhịp tăng lớn"
-    q1 = return_dist.quantile(0.25)
-    q3 = return_dist.quantile(0.75)
-    iqr = q3 - q1
+            return "Biến động cao"
 
     st.markdown(f"""
-    **Rủi ro & cơ hội đuôi phân phối (lợi suất):**
-    - Q1 (25%): **{q1:.2f}** → *{rate_q1(q1)}*
-    - Q3 (75%): **{q3:.2f}** → *{rate_q3(q3)}*
-    - IQR: **{iqr:.2f}** → *{rate_iqr(iqr)}*
-    """)
+**Đánh giá phân phối**
 
-    # Vẽ biểu đồ Boxplot
-    st.subheader('Biểu đồ thể hiện giá trị ngoại lai của lợi nhuận')
-    plt.figure(figsize=(6,5))
-    plt.boxplot(return_dist[1:], vert=True)
-    plt.title(f"Biểu đồ boxplot xem các giá trị ngoại lai của lợi nhuận\nKurtosis = {return_dist.kurtosis():.2f}")
-    plt.ylabel("Return")
-    st.pyplot(plt)
-    def rate_kurtosis(kurt):
-        if kurt < 0:
-            return "Phân phối bẹt, ít đuôi dày, tail risk thấp"
-        elif kurt < 3:
-            return "Phân phối gần chuẩn, tail risk trung bình"
-        elif kurt < 7:
-            return "Phân phối đuôi dày, thường xuyên xuất hiện biến động lớn"
+- Q1: **{q1:.4f}**
+- Q3: **{q3:.4f}**
+- IQR: **{iqr:.4f}** → *{rate_iqr(iqr)}*
+""")
+
+    # ==============================
+    # Return Time Series
+    # ==============================
+    st.subheader("Chuỗi lợi nhuận theo thời gian")
+
+    fig, ax = plt.subplots(figsize=(18,5))
+
+    ax.plot(diff)
+
+    ax.axhline(diff.mean(),linestyle="--",label="Mean Return")
+
+    ax.legend()
+
+    st.pyplot(fig)
+
+    vol = diff.std()
+
+    def vol_eval(vol):
+        if vol < 5:
+            return "Biến động thấp"
+        elif vol < 20:
+            return "Biến động trung bình"
         else:
-            return "Đuôi rất dày, rủi ro cực đoan cao (fat-tail risk)"
-    def rate_outlier_ratio(outlier_ratio):
-        if outlier_ratio < 1:
-            return "Rất ít ngoại lai, biến động tương đối ổn định"
-        elif outlier_ratio < 5:
-            return "Có một số ngoại lai, xuất hiện shock ngắn hạn"
-        elif outlier_ratio < 10:
-            return "Nhiều ngoại lai, thị trường biến động mạnh"
-        else:
-            return "Ngoại lai dày đặc, rủi ro biến động cực đoan"
-    q1 = return_dist.quantile(0.25)
-    q3 = return_dist.quantile(0.75)
-    iqr = q3 - q1
-
-    lower_bound = q1 - 1.5 * iqr
-    upper_bound = q3 + 1.5 * iqr
-
-    outliers = return_dist[(return_dist < lower_bound) | (return_dist > upper_bound)]
-    outlier_ratio = len(outliers) / len(return_dist) * 100
-    kurt = return_dist.kurtosis()
+            return "Biến động cao"
 
     st.markdown(f"""
-    **Phân tích ngoại lai & tail risk (Boxplot):**
-    - Kurtosis: **{kurt:.2f}** → *{rate_kurtosis(kurt)}*
-    - Tỷ lệ ngoại lai: **{outlier_ratio:.2f}%** → *{rate_outlier_ratio(outlier_ratio)}*
-    - Biên dưới (Lower bound): **{lower_bound:.2f}**
-    - Biên trên (Upper bound): **{upper_bound:.2f}**
+**Đánh giá biến động**
 
-    Boxplot cho thấy sự xuất hiện của nhiều giá trị ngoại lai, phản ánh các cú biến động bất thường trong lợi suất.
-    """)
+- Mean return: **{diff.mean():.4f}**
+- Volatility: **{vol:.2f}**
+- Nhận xét: ***{vol_eval(vol)}***
+""")
 
+    # ==============================
+    # Boxplot Outlier
+    # ==============================
+    st.subheader("Phân tích ngoại lai")
 
+    fig, ax = plt.subplots(figsize=(6,5))
 
+    ax.boxplot(diff)
+
+    ax.set_title(f"Boxplot Returns\nKurtosis = {diff.kurtosis():.2f}")
+
+    st.pyplot(fig)
+
+    lower = q1 - 1.5*iqr
+    upper = q3 + 1.5*iqr
+
+    outliers = diff[(diff<lower)|(diff>upper)]
+
+    ratio = len(outliers)/len(diff)*100
+
+    def outlier_eval(r):
+        if r < 1:
+            return "Ít ngoại lai"
+        elif r < 5:
+            return "Có một số ngoại lai"
+        else:
+            return "Ngoại lai nhiều, thị trường biến động mạnh"
+
+    st.markdown(f"""
+**Outlier analysis**
+
+- Tỷ lệ ngoại lai: **{ratio:.2f}%**
+- Lower bound: **{lower:.4f}**
+- Upper bound: **{upper:.4f}**
+- Nhận xét: *{outlier_eval(ratio)}*
+""")
+
+    # ==============================
+    # Autocorrelation
+    # ==============================
+    from statsmodels.graphics.tsaplots import plot_acf
+
+    st.subheader("Autocorrelation của lợi nhuận")
+
+    fig, ax = plt.subplots(figsize=(10,4))
+
+    plot_acf(diff,lags=40,ax=ax)
+
+    st.pyplot(fig)
+
+    acf1 = diff.autocorr(lag=1)
+
+    def acf_eval(acf):
+        if abs(acf) < 0.05:
+            return "Không có autocorrelation đáng kể"
+        elif abs(acf) < 0.2:
+            return "Autocorrelation yếu"
+        else:
+            return "Autocorrelation mạnh"
+
+    st.markdown(f"""
+**Phân tích Autocorrelation**
+
+- ACF lag1: **{acf1:.3f}**
+- Nhận xét: *{acf_eval(acf1)}*
+""")
 
 
 elif page == "Model":
